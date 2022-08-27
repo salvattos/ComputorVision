@@ -20,38 +20,15 @@ import numpy as np
 import cv2
 import math
 import os
+from scipy import signal,ndimage
 
-def DoG(image):
-	
-	#gaussian filter
-	sigma = 1.6
-	K = 2
-	gaussian = genGaussianKernel(7,1.6,1)
+def rotateImage(image,angle,scale = 1):
+	(h, w) = image.shape
+	center = (int(w / 2) , int(h / 2)) 
 
-	cv2.imshow("image",cv2.resize(gaussian,(500,500)))
-	cv2.waitKey(0)
-	
-	(h, w) = gaussian.shape
-	threshhold = 100
-	Gx = np.array([[-1, 0, 1],[-2,0,2],[-1, 0, 1]])
-	Gy = np.array([[-1,-2,-1],[0,0,0],[1,2,1]])
-	sobel = np.zeros((h,w))
-	#sobel filter
-	for r in range(h-3):
-		for c in range(w-3):
-			S1 = np.sum(Gx*gaussian[r:r+3,c:c+3])
-			S2 = np.sum(Gy*gaussian[r:r+3,c:c+3])
-			S2 = 1
-			sobel[r,c] = np.sqrt(pow(S1,2) + pow(S2,2))
-
-	row,col = sobel.shape
-	sobel = convolve2D(Gx,gaussian,5)
-	normSobel = sobel.astype(np.uint8)	
-	print(normSobel)
-	cv2.imshow("image",cv2.resize(normSobel,(500,500)))
-	cv2.waitKey(0)
-
-	return gaussian
+	M = cv2.getRotationMatrix2D(center, angle, scale)
+	rotatedI = cv2.warpAffine(image, M, (w, h))
+	return rotatedI
 
 def genGaussianKernel(size,sigma,K=1):
 	xmid = int(size/2)
@@ -68,49 +45,6 @@ def genGaussianKernel(size,sigma,K=1):
 def normalize(array, upperBound):
 	norm = (upperBound*(array - np.min(array))/np.ptp(array)).astype(np.uint8) 
 	return norm
-
-def convolve2D(image, kernel, padding=0, strides=1):
-    # Cross Correlation
-    kernel = np.flipud(np.fliplr(kernel))
-
-    # Gather Shapes of Kernel + Image + Padding
-    xKernShape = kernel.shape[0]
-    yKernShape = kernel.shape[1]
-    xImgShape = image.shape[0]
-    yImgShape = image.shape[1]
-
-    # Shape of Output Convolution
-    xOutput = int(((xImgShape - xKernShape + 2 * padding) / strides) + 1)
-    yOutput = int(((yImgShape - yKernShape + 2 * padding) / strides) + 1)
-    output = np.zeros((xOutput, yOutput))
-
-    # Apply Equal Padding to All Sides
-    if padding != 0:
-        imagePadded = np.zeros((image.shape[0] + padding*2, image.shape[1] + padding*2))
-        imagePadded[int(padding):int(-1 * padding), int(padding):int(-1 * padding)] = image
-        print(imagePadded)
-    else:
-        imagePadded = image
-
-    # Iterate through image
-    for y in range(image.shape[1]):
-        # Exit Convolution
-        if y > image.shape[1] - yKernShape:
-            break
-        # Only Convolve if y has gone down by the specified Strides
-        if y % strides == 0:
-            for x in range(image.shape[0]):
-                # Go to next row once kernel is out of bounds
-                if x > image.shape[0] - xKernShape:
-                    break
-                try:
-                    # Only Convolve if x has moved by the specified Strides
-                    if x % strides == 0:
-                        output[x, y] = (kernel * imagePadded[x: x + xKernShape, y: y + yKernShape]).sum()
-                except:
-                    break
-
-    return output
 
 def main():
 	"""
@@ -129,33 +63,31 @@ def main():
 	Display all the filters in this filter bank and save image as DoG.png,
 	use command "cv2.imwrite(...)"
 	"""
+	#Generate two gaussian kernels with different K and Sigma values in a 7x7 matrix
+	gaussianS1 = genGaussianKernel(7,1.6,1)
+	gaussianS2 = genGaussianKernel(7,2,1.7)
 
-	directory  = "C:\\Users\\salva\\Documents\\WPI\\ComputerVision\\YourDirectoryID_hw0\\Phase1\\BSDS500\\Images"
-	counter = 1
+	#X dir sobel filter
+	Gx = np.array([[-1, 0, 1],[-2,0,2],[-1, 0, 1]])
+	#Convolve and normalize gaussian kernel and sobel filter
+	sobel1 = normalize(signal.convolve(gaussianS1,Gx),255)
+	sobel2 = normalize(signal.convolve(gaussianS2,Gx),255)
 
-	image = cv2.imread("C:\\Users\\salva\\Documents\\WPI\\ComputerVision\\YourDirectoryID_hw0\\Phase1\\BSDS500\\Images\\1.jpg",0)
-	DoGImage = DoG(image)
-	#cv2.imshow("DoG",DoGImage)
-	#cv2.waitKey(0)
-	"""
-	for filename in os.scandir(directory):
-		if filename.is_file():
-			print(filename.path)
+	rotatedSobel = rotateImage(sobel1,90)
 
-		image = cv2.imread(filename.path,0)
-		
-
-		DoG_image = DoG(image)
-		if(counter != 1):
-			DoG_image = np.concatenate((oldDoG,DoG_image), axis=1)
+	filterBankS1 = sobel1
+	filterBankS2 = sobel2
+	#Rotate and concatenate images for filter
+	for x in range(1,15):
+		#Rotate both images
+		rotatedS1 = rotateImage(sobel1,x*22.5)
+		filterBankS1 = np.concatenate((filterBankS1,rotatedS1), axis=1)
+		rotatedS2 = rotateImage(sobel2,x*22.5)
+		filterBankS2 = np.concatenate((filterBankS2,rotatedS2), axis=1)
 
 
-		oldDoG = DoG_image
-		#DoG_image = cv2.imwrite("test" + str(counter) + ".jpg",mag)
-		counter += 1
-
-	DoG_imageWrite = cv2.imwrite('DoG.jpg',DoG_image)
-	"""
+	DoGImage = np.concatenate((filterBankS1,filterBankS2), axis=0)
+	DoG_imageWrite = cv2.imwrite('DoG.jpg',DoGImage)
 	"""
 	Generate Leung-Malik Filter Bank: (LM)
 	Display all the filters in this filter bank and save image as LM.png,
